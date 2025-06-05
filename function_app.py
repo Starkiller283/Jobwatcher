@@ -2,7 +2,7 @@ import os
 import logging
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 import hashlib
 import azure.functions as func
 from azure.data.tables import TableClient
@@ -15,7 +15,9 @@ app = func.FunctionApp()
 # Use a browser-like user agent so sites don't immediately block requests
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (compatible; JobWatcher/1.0; +https://github.com/Starkiller283/Jobwatcher)"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/123.0.0.0 Safari/537.36"
     )
 }
 
@@ -126,7 +128,6 @@ def fetch_listings():
             title = title_el.get_text(strip=True)
             href  = link_el.get("href", "")
             link  = urljoin(site, href)
-            parsed = urlparse(link)
             # Use a hash of the full URL to avoid collisions across sites
             job_id = hashlib.sha1(link.encode()).hexdigest()
 
