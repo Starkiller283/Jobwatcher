@@ -114,45 +114,47 @@ def fetch_listings():
     Returns a list of dicts: { "id", "title", "link", "description" }.
     """
     listings = []
-    for site in JOB_SITES:
-        # Sleep briefly between requests to reduce the chance of being blocked
-        time.sleep(random.uniform(1, 3))
-        try:
-            resp = requests.get(site, headers=HEADERS, timeout=10)
-            resp.raise_for_status()
-        except Exception as e:
-            # If a site returns 403, 404, DNS error, etc., log a warning and move on.
-            logging.warning(f"Failed to fetch {site}: {e}")
-            continue
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Generic “card” parser – many sites wrap each listing in a container like .job-card or .job-listing
-        for card in soup.select(".job-listing, .job-card"):
-            title_el = card.select_one(".title, h2, a")
-            link_el  = card.select_one("a")
-            if not title_el or not link_el:
+    with requests.Session() as session:
+        session.headers.update(HEADERS)
+        for site in JOB_SITES:
+            # Sleep briefly between requests to reduce the chance of being blocked
+            time.sleep(random.uniform(1, 3))
+            try:
+                resp = session.get(site, headers={"Referer": site}, timeout=10)
+                resp.raise_for_status()
+            except Exception as e:
+                # If a site returns 403, 404, DNS error, etc., log a warning and move on.
+                logging.warning(f"Failed to fetch {site}: {e}")
                 continue
 
-            href = link_el.get("href")
-            if not href:
-                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
 
-            title = title_el.get_text(strip=True)
-            link  = urljoin(site, href)
-            # Use a hash of the full URL to avoid collisions across sites
-            job_id = hashlib.sha1(link.encode()).hexdigest()
+            # Generic “card” parser – many sites wrap each listing in a container like .job-card or .job-listing
+            for card in soup.select(".job-listing, .job-card"):
+                title_el = card.select_one(".title, h2, a")
+                link_el  = card.select_one("a")
+                if not title_el or not link_el:
+                    continue
 
-            # Some cards include a short summary/description
-            desc_el = card.select_one(".description, .summary")
-            desc = desc_el.get_text(strip=True) if desc_el else ""
+                href = link_el.get("href")
+                if not href:
+                    continue
 
-            listings.append({
-                "id":          job_id,
-                "title":       title,
-                "link":        link,
-                "description": desc
-            })
+                title = title_el.get_text(strip=True)
+                link  = urljoin(site, href)
+                # Use a hash of the full URL to avoid collisions across sites
+                job_id = hashlib.sha1(link.encode()).hexdigest()
+
+                # Some cards include a short summary/description
+                desc_el = card.select_one(".description, .summary")
+                desc = desc_el.get_text(strip=True) if desc_el else ""
+
+                listings.append({
+                    "id":          job_id,
+                    "title":       title,
+                    "link":        link,
+                    "description": desc
+                })
 
     return listings
 
