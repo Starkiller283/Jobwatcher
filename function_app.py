@@ -12,6 +12,13 @@ from sendgrid.helpers.mail import Mail
 
 app = func.FunctionApp()
 
+# Use a browser-like user agent so sites don't immediately block requests
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (compatible; JobWatcher/1.0; +https://github.com/Starkiller283/Jobwatcher)"
+    )
+}
+
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 # 1) List of UK IT contract pages to scrape (generic HTML)
 JOB_SITES = [
@@ -100,7 +107,7 @@ def fetch_listings():
     listings = []
     for site in JOB_SITES:
         try:
-            resp = requests.get(site)
+            resp = requests.get(site, headers=HEADERS, timeout=10)
             resp.raise_for_status()
         except Exception as e:
             # If a site returns 403, 404, DNS error, etc., log a warning and move on.
