@@ -2,6 +2,8 @@ import os
 import logging
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+import hashlib
 import azure.functions as func
 from azure.data.tables import TableClient
 from azure.core.exceptions import ResourceNotFoundError
@@ -37,7 +39,7 @@ JOB_SITES = [
     "https://uk.jooble.org",
     "https://uk.welcometothejungle.com",
     "https://uk.talent.com",
-    "itjobswatch.co.uk/Contract-IT-Job-Market",
+    "https://itjobswatch.co.uk/Contract-IT-Job-Market",
     "https://outsideir35roles.com",
     "https://www.procontractjobs.com",
     "https://alltechishuman.org",
@@ -71,17 +73,22 @@ SKILL_KEYWORDS = [
 ]
 
 # 3) Environment variables (configure in local.settings.json and in Azure)
-TABLE_CONN         = os.environ["TABLE_CONN"]
-TABLE_NAME         = os.environ["TABLE_NAME"]
-SENDGRID_API_KEY   = os.environ["SENDGRID_API_KEY"]
-EMAIL_FROM         = os.environ["EMAIL_FROM"]
-EMAIL_TO           = os.environ["EMAIL_TO"]
+TABLE_CONN       = os.getenv("TABLE_CONN")
+TABLE_NAME       = os.getenv("TABLE_NAME")
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+EMAIL_FROM       = os.getenv("EMAIL_FROM")
+EMAIL_TO         = os.getenv("EMAIL_TO")
 
 # ── AZURE TABLE CLIENT ─────────────────────────────────────────────────────────
-table = TableClient.from_connection_string(
-    conn_str=TABLE_CONN,
-    table_name=TABLE_NAME
-)
+table = None
+if TABLE_CONN and TABLE_NAME:
+    try:
+        table = TableClient.from_connection_string(
+            conn_str=TABLE_CONN,
+            table_name=TABLE_NAME
+        )
+    except Exception as e:
+        logging.error(f"Failed to create TableClient: {e}")
 
 # ── FETCH ──────────────────────────────────────────────────────────────────────
 def fetch_listings():
@@ -111,8 +118,10 @@ def fetch_listings():
 
             title = title_el.get_text(strip=True)
             href  = link_el.get("href", "")
-            link  = href if href.startswith("http") else site.rstrip("/") + href
-            job_id = link.split("/")[-1]  # use the last segment as a quasi‐unique ID
+            link  = urljoin(site, href)
+            parsed = urlparse(link)
+            # Use a hash of the full URL to avoid collisions across sites
+            job_id = hashlib.sha1(link.encode()).hexdigest()
 
             # Some cards include a short summary/description
             desc_el = card.select_one(".description, .summary")
@@ -156,11 +165,14 @@ def filter_new(listings):
         if "remote" not in title and "remote" not in desc:
             continue
 
-        # 4) Deduplicate via Azure Table Storage
-        try:
-            table.get_entity(partition_key="jobs", row_key=job["id"])
-            # If it already exists, skip it
-        except ResourceNotFoundError:
+        # 4) Deduplicate via Azure Table Storage if configured
+        if table:
+            try:
+                table.get_entity(partition_key="jobs", row_key=job["id"])
+                # If it already exists, skip it
+            except ResourceNotFoundError:
+                new_jobs.append(job)
+        else:
             new_jobs.append(job)
 
     return new_jobs
@@ -170,7 +182,8 @@ def send_email(jobs):
     """
     Build a simple HTML email with each job as a link, and send via SendGrid.
     """
-    if not jobs:
+    if not jobs or not SENDGRID_API_KEY or not EMAIL_FROM or not EMAIL_TO:
+        logging.warning("Email settings incomplete; skipping email notification")
         return
 
     html = "<h3>New IT Contract Roles:</h3><ul>"
@@ -197,6 +210,10 @@ def mark_seen(jobs):
     For each job in `jobs`, create an entity in Azure Table Storage
     so that we don’t email it again on the next run.
     """
+    if not table:
+        logging.warning("Table storage not configured; cannot mark jobs as seen")
+        return
+
     for job in jobs:
         try:
             table.create_entity({
