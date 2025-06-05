@@ -4,6 +4,8 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import hashlib
+import time
+import random
 import azure.functions as func
 from azure.data.tables import TableClient
 from azure.core.exceptions import ResourceNotFoundError
@@ -12,13 +14,18 @@ from sendgrid.helpers.mail import Mail
 
 app = func.FunctionApp()
 
-# Use a browser-like user agent so sites don't immediately block requests
+# Use browser-like headers so sites are less likely to return 403
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/123.0.0.0 Safari/537.36"
-    )
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) "
+        "Gecko/20100101 Firefox/123.0"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif," \
+        "image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.5",
+    "Connection": "keep-alive",
 }
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
@@ -108,6 +115,8 @@ def fetch_listings():
     """
     listings = []
     for site in JOB_SITES:
+        # Sleep briefly between requests to reduce the chance of being blocked
+        time.sleep(random.uniform(1, 3))
         try:
             resp = requests.get(site, headers=HEADERS, timeout=10)
             resp.raise_for_status()
@@ -125,8 +134,11 @@ def fetch_listings():
             if not title_el or not link_el:
                 continue
 
+            href = link_el.get("href")
+            if not href:
+                continue
+
             title = title_el.get_text(strip=True)
-            href  = link_el.get("href", "")
             link  = urljoin(site, href)
             # Use a hash of the full URL to avoid collisions across sites
             job_id = hashlib.sha1(link.encode()).hexdigest()
@@ -179,6 +191,9 @@ def filter_new(listings):
                 table.get_entity(partition_key="jobs", row_key=job["id"])
                 # If it already exists, skip it
             except ResourceNotFoundError:
+                new_jobs.append(job)
+            except Exception as e:
+                logging.error(f"Table lookup failed: {e}")
                 new_jobs.append(job)
         else:
             new_jobs.append(job)
