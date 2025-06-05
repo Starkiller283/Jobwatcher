@@ -3,6 +3,7 @@ import logging
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
+import hashlib
 import azure.functions as func
 from azure.data.tables import TableClient
 from azure.core.exceptions import ResourceNotFoundError
@@ -119,7 +120,8 @@ def fetch_listings():
             href  = link_el.get("href", "")
             link  = urljoin(site, href)
             parsed = urlparse(link)
-            job_id = os.path.basename(parsed.path.rstrip("/")) or parsed.netloc
+            # Use a hash of the full URL to avoid collisions across sites
+            job_id = hashlib.sha1(link.encode()).hexdigest()
 
             # Some cards include a short summary/description
             desc_el = card.select_one(".description, .summary")
