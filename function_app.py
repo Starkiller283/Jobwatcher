@@ -38,7 +38,7 @@ JOB_SITES = [
     "https://uk.jooble.org",
     "https://uk.welcometothejungle.com",
     "https://uk.talent.com",
-    "itjobswatch.co.uk/Contract-IT-Job-Market",
+    "https://itjobswatch.co.uk/Contract-IT-Job-Market",
     "https://outsideir35roles.com",
     "https://www.procontractjobs.com",
     "https://alltechishuman.org",
